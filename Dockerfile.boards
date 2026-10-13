@@ -7,6 +7,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PORT=8080
 
+# Take Debian security fixes newer than the pinned base, so the trivy gate passes.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY src/__init__.py src/llm_json.py ./src/
 COPY src/boards/ ./src/boards/
