@@ -1,0 +1,66 @@
+# Cloud Build: ai-scrummaster-boards image (the Azure DevOps Boards entry point).
+# Tests gate the build; trivy gates the push; the pushed digest is cosign-signed
+# with the platform KMS key so admission (verifyImages) accepts it.
+#
+#   gcloud builds submit --region=europe-north1 --config=cloudbuild-boards.yaml \
+#     --substitutions=SHORT_SHA=$(git rev-parse --short HEAD) .
+steps:
+  - id: pytest-gate
+    name: 'python:3.12-slim'
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        set -eu
+        pip install --quiet pytest
+        # --noconftest: tests/conftest.py loads the GitHub crew (crewai); the Boards agent is stdlib only.
+        python3 -m pytest --noconftest -p no:cacheprovider -q tests/test_boards
+
+  - id: build
+    name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--build-arg'
+      - 'BASE_IMAGE=europe-north1-docker.pkg.dev/$PROJECT_ID/intfab-dev-docker/python:3.12-slim@sha256:de5eb75a4869187b44bc50565fd8dce264c3403c3e0910e1c69f368659bf2abe'
+      - '-t'
+      - 'europe-north1-docker.pkg.dev/$PROJECT_ID/intfab-dev-docker/ai-scrummaster-boards:$SHORT_SHA'
+      - '-f'
+      - 'Dockerfile.boards'
+      - '.'
+
+  - id: trivy
+    name: 'ghcr.io/aquasecurity/trivy:0.69.3'
+    args:
+      - 'image'
+      - '--exit-code'
+      - '1'
+      - '--severity'
+      - 'HIGH,CRITICAL'
+      - '--ignore-unfixed'
+      - 'europe-north1-docker.pkg.dev/$PROJECT_ID/intfab-dev-docker/ai-scrummaster-boards:$SHORT_SHA'
+
+  # cosign needs the image in the registry before it can sign it.
+  - id: push
+    name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'europe-north1-docker.pkg.dev/$PROJECT_ID/intfab-dev-docker/ai-scrummaster-boards:$SHORT_SHA'
+
+  # Key-based signing with the KMS key; air-gap friendly, no public Rekor upload.
+  - id: cosign-sign
+    name: 'europe-north1-docker.pkg.dev/mssintfabricdev240320/intfab-dev-docker/sigstore/cosign:v2.4.1'
+    args:
+      - 'sign'
+      - '--key=gcpkms://projects/mssintfabricdev240320/locations/europe-north1/keyRings/intfab-dev-keyring/cryptoKeys/intfab-dev-cosign/cryptoKeyVersions/1'
+      - '--tlog-upload=false'
+      - '--yes'
+      - 'europe-north1-docker.pkg.dev/$PROJECT_ID/intfab-dev-docker/ai-scrummaster-boards:$SHORT_SHA'
+
+images:
+  - 'europe-north1-docker.pkg.dev/$PROJECT_ID/intfab-dev-docker/ai-scrummaster-boards:$SHORT_SHA'
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: '600s'
+
+# The cosign signer SA: it may use the intfab-dev-cosign KMS key.
+serviceAccount: 'projects/mssintfabricdev240320/serviceAccounts/intfab-dev-cloudbuild@mssintfabricdev240320.iam.gserviceaccount.com'
