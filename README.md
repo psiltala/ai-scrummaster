@@ -109,6 +109,10 @@ Point your repository webhook at `POST /webhook` with `application/json` content
 - Stdlib only (no crewai). It shares `src/llm_json.py` with the GitHub crew.
 - It holds no Azure DevOps credential. Every read and write goes through the `ado-boards` MCP tools behind the platform gateway.
 - Env: `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL` (default `fabric-reasoning`), `MCP_GATEWAY_URL`, `PORT` (default `8080`).
+- Flags (default off, each falls back to the flow above when off or when its platform tool answers `flag_off` or is not listed):
+  - `SCRUMMASTER_DEDUP_ENABLED`: before anything else, search similar stories (`search_stories`) and let the model judge intent. On a clear match, link the story to the oldest matching active story (`mark_duplicate`, which also comments why) and stop. It also skips a planned task that an existing child task already covers.
+  - `SCRUMMASTER_TITLE_REWRITE_ENABLED`: give an unclear title (under 4 words, or no verb or object) a short, specific one (`set_story_title`). The original title stays in the "Original" section.
+  - Every decision is listed in the agent's one summary comment.
 - Health: `GET /healthz`.
 
 ```bash
