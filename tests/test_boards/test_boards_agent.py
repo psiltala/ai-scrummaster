@@ -68,12 +68,47 @@ class FakeBoards:
         self.headers_seen = []
         self.next_id = 500
         self.lock = threading.Lock()
+        # search_stories corpus: other User Stories in the project, {id: result row}.
+        self.corpus = {}
+        # Tools answering flag_off (platform flag off) or unknown_tool (not listed).
+        self.off = set()
+        self.unlisted = set()
 
     def allowed(self):
         return {self.story_id, *self.items[self.story_id]["childIds"]}
 
+    def search(self, query, limit):
+        words = [w for w in query.lower().split() if len(w) >= 3]
+        rows = list(self.corpus.values()) + [
+            {
+                "id": i,
+                "title": it["title"],
+                "state": it["state"],
+                "priority": it.get("priority"),
+                "createdDate": "2026-10-14T00:00:00Z",
+                "descriptionText": it.get("description") or "",
+            }
+            for i, it in self.items.items()
+            if it.get("type") == "User Story"
+        ]
+        hits = [
+            r
+            for r in rows
+            if any(
+                w in (r["title"] + " " + r["descriptionText"]).lower() for w in words
+            )
+            and r["state"] != "Removed"
+        ]
+        return {"results": hits[:limit]}
+
     def call(self, name, args):
         self.calls.append((name, args))
+        if name in self.off:
+            return {"code": "flag_off", "message": "feature is off"}, True
+        if name in self.unlisted:
+            return {"code": "unknown_tool", "message": name}, True
+        if name == "search_stories":
+            return self.search(args["query"], args.get("limit", 10)), False
         wid = args.get("workItemId", args.get("storyId"))
         if wid not in self.allowed():
             return {
@@ -122,6 +157,19 @@ class FakeBoards:
             return {"created": True, "workItemId": self.next_id}, False
         if name == "add_comment":
             return {"commented": True, "workItemId": wid}, False
+        if name == "set_story_title":
+            st = self.items[wid]
+            st["title"] = args["title"]
+            st["rev"] += 1
+            return {"id": wid, "rev": st["rev"], "updated": ["title"]}, False
+        if name == "mark_duplicate":
+            self.items[wid]["duplicateOf"] = args["duplicateOfId"]
+            return {
+                "linked": True,
+                "commented": True,
+                "storyId": wid,
+                "duplicateOfId": args["duplicateOfId"],
+            }, False
         return {"code": "unknown_tool", "message": name}, True
 
 

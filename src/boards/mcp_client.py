@@ -15,6 +15,10 @@ TOOLS = (
     "update_story",
     "create_child_task",
     "add_comment",
+    # Optional: the agent falls back to the old flow when these are off or unlisted.
+    "set_story_title",
+    "search_stories",
+    "mark_duplicate",
 )
 
 
@@ -73,10 +77,13 @@ class McpClient:
                 self._session = resp.headers.get("Mcp-Session-Id") or self._session
                 raw = resp.read(1 << 20)
         except urllib.error.HTTPError as e:
-            raise McpError(f"mcp {body.get('method')} HTTP {e.code}") from None
+            raise McpError(
+                f"mcp {body.get('method')} HTTP {e.code}", f"http:{e.code}"
+            ) from None
         except (urllib.error.URLError, OSError) as e:
             raise McpError(
-                f"mcp {body.get('method')} unreachable: {type(e).__name__}"
+                f"mcp {body.get('method')} unreachable: {type(e).__name__}",
+                "unreachable",
             ) from None
         if not want_response:
             return None
@@ -87,9 +94,8 @@ class McpClient:
         if not isinstance(obj, dict):
             raise McpError(f"mcp {body.get('method')} returned no response")
         if obj.get("error"):
-            raise McpError(
-                f"mcp {body.get('method')} rpc error {obj['error'].get('code')}"
-            )
+            code = obj["error"].get("code")
+            raise McpError(f"mcp {body.get('method')} rpc error {code}", f"rpc:{code}")
         return obj.get("result") or {}
 
     def _call(self, method, params):
