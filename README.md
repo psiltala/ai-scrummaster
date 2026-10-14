@@ -102,6 +102,28 @@ The `since_hours` parameter accepts an integer between 1 and 720 (default: 24).
 
 Point your repository webhook at `POST /webhook` with `application/json` content type and the same secret as `GITHUB_WEBHOOK_SECRET`. Supported events: `issues`, `pull_request`, `push`.
 
+## Azure DevOps Boards entry point
+
+`src/boards/` is a second entry point for Azure DevOps Boards. It runs as an A2A agent on the Intelligent Fabric platform: the event dispatcher sends `message/send` on `POST /` when a User Story is created. The agent rewrites the story, adds Given/When/Then acceptance criteria, sets a priority, creates 3-8 child tasks, and comments on the story with what it changed.
+
+- Stdlib only (no crewai). It shares `src/llm_json.py` with the GitHub crew.
+- It holds no Azure DevOps credential. Every read and write goes through the `ado-boards` MCP tools behind the platform gateway.
+- Env: `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL` (default `fabric-reasoning`), `MCP_GATEWAY_URL`, `PORT` (default `8080`).
+- Flags (default off, each falls back to the flow above when off or when its platform tool answers `flag_off` or is not listed):
+  - `SCRUMMASTER_DEDUP_ENABLED`: before anything else, search similar stories (`search_stories`) and let the model judge intent. On a clear match, link the story to the oldest matching active story (`mark_duplicate`, which also comments why) and stop. It also skips a planned task that an existing child task already covers.
+  - `SCRUMMASTER_TITLE_REWRITE_ENABLED`: give an unclear title (under 4 words, or no verb or object) a short, specific one (`set_story_title`). The original title stays in the "Original" section.
+  - Every decision is listed in the agent's one summary comment.
+- Health: `GET /healthz`.
+
+```bash
+python -m pytest --noconftest tests/test_boards   # no crewai needed
+python -m src.boards.app                          # local run
+gcloud builds submit --region=europe-north1 --config=cloudbuild-boards.yaml \
+  --substitutions=SHORT_SHA=$(git rev-parse --short HEAD) .
+```
+
+The platform deployment pins the built image by digest. The manifests live in the platform repo, not here.
+
 ## Policy configuration
 
 Edit `policies/rules.yaml` to configure:

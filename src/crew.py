@@ -4,6 +4,7 @@ import re
 from collections import deque
 from crewai import Crew, LLM, Process
 from src.config import settings
+from src.llm_json import extract_json, find_balanced_json
 from src.sanitizer import SanitizedPayload
 from src.schemas.triage import TriageResult, RouteType
 from src.schemas.dedup import DedupResult
@@ -55,50 +56,9 @@ def _reset_policy_cache() -> None:
     _policy_engine = None
 
 
-_JSON_FENCE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.DOTALL)
-
-
-def _find_balanced_json(output: str) -> str | None:
-    """Find the first balanced JSON object or array using bracket matching."""
-    openers = {"{": "}", "[": "]"}
-    for i, ch in enumerate(output):
-        if ch not in openers:
-            continue
-        closer = openers[ch]
-        depth = 0
-        in_string = False
-        escaped = False
-        for j in range(i, len(output)):
-            c = output[j]
-            if in_string and escaped:
-                escaped = False
-                continue
-            if in_string and c == "\\":
-                escaped = True
-                continue
-            if c == '"':
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if c == ch:
-                depth += 1
-            elif c == closer:
-                depth -= 1
-                if depth == 0:
-                    return output[i : j + 1]
-    return None
-
-
-def _extract_json(output: str) -> str:
-    """Extract a JSON block from LLM output that may include markdown fences or prose."""
-    m = _JSON_FENCE.search(output)
-    if m:
-        return m.group(1).strip()
-    result = _find_balanced_json(output)
-    if result:
-        return result.strip()
-    return output.strip()
+# Moved to src/llm_json so the Boards agent can share it without importing crewai.
+_find_balanced_json = find_balanced_json
+_extract_json = extract_json
 
 
 def _make_llm() -> LLM:
